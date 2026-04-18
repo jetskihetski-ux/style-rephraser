@@ -110,19 +110,33 @@ Use parallel structure but let the language feel natural.""",
     "bypass": {
         "label": "Bypass AI Detection",
         "icon":  "🕵️",
-        "desc":  "Aggressively rewrite to evade AI detectors.",
-        "instruction": """Rewrite this text to bypass AI detection tools completely.
+        "desc":  "Targets perplexity + burstiness — the actual metrics Turnitin uses.",
+        "instruction": """Rewrite this text to fool AI detection models that measure PERPLEXITY and BURSTINESS.
 
-Techniques to apply:
-- Vary sentence length aggressively (2-word sentences next to 25-word ones)
-- Use unconventional punctuation and structure where natural
-- Insert mild imperfections: sentence fragments, informal asides, rhetorical questions
-- Replace every AI word with a simpler or more idiosyncratic alternative
-- Change passive voice to active throughout
-- Add a personal or opinionated tone — AI is neutral, humans are not
-- Restructure paragraphs — don't follow the original order if you can rephrase it differently
-- Use real contractions throughout
-Keep the full meaning intact.""",
+BURSTINESS (critical — this is what detectors look for most):
+- Violently vary sentence length. Put a 3-word sentence right after a long one.
+- Short. Then a sentence that runs longer and includes more detail, packed with clauses and specifics that make it feel like a real human thought that kept going.
+- Then short again.
+- Mix 2-word fragments, 5-word sentences, 30-word sentences randomly.
+- Never write 3 sentences of similar length in a row.
+
+PERPLEXITY (make word choices unpredictable):
+- Replace predictable words with less common but natural alternatives
+- Use unexpected transitions instead of: however, furthermore, additionally, therefore
+- Add informal asides in parentheses or after a dash — the kind of thing a person just thinks of
+- Use specific concrete details instead of vague generalities
+- Throw in a rhetorical question where it fits
+- Use "and" to start sentences sometimes. It's how people actually write.
+- Vary your sentence openings — don't start multiple sentences with the subject
+
+ALSO:
+- Remove ALL AI words: delve, utilize, leverage, seamless, robust, paradigm, nuanced, comprehensive, furthermore, moreover
+- Use contractions everywhere naturally
+- Make it opinionated — humans have views, AI is neutral
+- Active voice only
+- Restructure ideas — don't follow original word order slavishly
+
+Keep the full meaning. Output ONLY the rewritten text.""",
     },
 }
 

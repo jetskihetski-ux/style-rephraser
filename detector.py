@@ -46,25 +46,71 @@ def score_ai_words(text: str) -> tuple[float, list[str]]:
     return penalty, found
 
 
-def score_burstiness(text: str) -> float:
+def score_burstiness(text: str) -> tuple[float, dict]:
     """
     Burstiness = variance in sentence length.
-    Humans write with high variance (short + long mixed).
-    AI writes consistently similar-length sentences.
-    Returns bonus 0-1.
+    Humans: high variance (CV > 0.5). AI: low variance (CV < 0.25).
+    Returns (score 0-1, details dict).
     """
     sents = _sentences(text)
     if len(sents) < 3:
-        return 0.5
-    lengths = [len(s.split()) for s in sents]
-    mean    = sum(lengths) / len(lengths)
+        return 0.5, {"cv": 0, "min_len": 0, "max_len": 0, "avg_len": 0}
+    lengths  = [len(s.split()) for s in sents]
+    mean     = sum(lengths) / len(lengths)
     if mean == 0:
-        return 0
+        return 0, {}
     variance = sum((l - mean) ** 2 for l in lengths) / len(lengths)
     std_dev  = math.sqrt(variance)
-    cv       = std_dev / mean   # coefficient of variation
-    # humans typically CV > 0.4, AI typically CV < 0.25
-    return min(cv / 0.6, 1.0)
+    cv       = std_dev / mean
+    score    = min(cv / 0.6, 1.0)
+    return score, {
+        "cv":      round(cv, 3),
+        "min_len": min(lengths),
+        "max_len": max(lengths),
+        "avg_len": round(mean, 1),
+        "std_dev": round(std_dev, 1),
+    }
+
+
+def score_perplexity_proxy(text: str) -> tuple[float, dict]:
+    """
+    Proxy for perplexity using word frequency analysis.
+    AI uses high-frequency (predictable) words. Humans use more varied vocabulary.
+    Common words list approximates what a language model would predict.
+    Returns (score 0-1, details).
+    """
+    # Top 200 most common English words — AI overuses these
+    COMMON = set([
+        "the","be","to","of","and","a","in","that","have","it","for","not",
+        "on","with","he","as","you","do","at","this","but","his","by","from",
+        "they","we","say","her","she","or","an","will","my","one","all","would",
+        "there","their","what","so","up","out","if","about","who","get","which",
+        "go","me","when","make","can","like","time","no","just","him","know",
+        "take","people","into","year","your","good","some","could","them","see",
+        "other","than","then","now","look","only","come","its","over","think",
+        "also","back","after","use","two","how","our","work","first","well",
+        "way","even","new","want","because","any","these","give","day","most",
+        "us","is","was","are","were","been","has","had","did","said","each",
+        "more","very","great","between","need","large","often","hand","high",
+        "place","hold","turn","found","still","should","through","both","where",
+        "much","before","right","too","mean","old","any","same","tell","boy",
+        "follow","came","show","form","three","small","set","put","end","does",
+    ])
+    words     = _words(text)
+    if len(words) < 10:
+        return 0.5, {}
+    common_ct = sum(1 for w in words if w in COMMON)
+    ratio     = common_ct / len(words)
+    # humans ~55-65% common words, AI ~70-80%
+    if ratio < 0.60:   score = 1.0
+    elif ratio < 0.68: score = 0.7
+    elif ratio < 0.74: score = 0.4
+    else:              score = 0.15
+    return score, {
+        "common_word_ratio": round(ratio * 100, 1),
+        "unique_words":      len(set(words)),
+        "total_words":       len(words),
+    }
 
 
 def score_contractions(text: str) -> float:
@@ -129,23 +175,27 @@ def score_punctuation_variety(text: str) -> float:
 
 def human_score(text: str) -> dict:
     """
-    Returns overall human score (0-100) and breakdown.
+    Returns overall human score (0-100) and breakdown including
+    real burstiness CV and perplexity proxy.
     """
     if not text.strip():
-        return {"score": 0, "label": "N/A", "color": "#888", "breakdown": {}}
+        return {"score": 0, "label": "N/A", "color": "#888", "breakdown": {},
+                "burstiness": {}, "perplexity": {}}
 
     ai_penalty, found_words = score_ai_words(text)
+    burst_score, burst_info = score_burstiness(text)
+    perp_score,  perp_info  = score_perplexity_proxy(text)
 
     components = {
-        "Sentence Variety":    score_burstiness(text)          * 25,
-        "Contractions":        score_contractions(text)        * 20,
-        "Sentence Length":     score_avg_sentence_length(text) * 20,
-        "Vocabulary Diversity":score_vocab_diversity(text)     * 15,
-        "Punctuation":         score_punctuation_variety(text) * 10,
-        "AI Opener":           max(score_opener(text), 0)      * 10,
+        "Burstiness (sentence variety)": burst_score              * 30,
+        "Perplexity (word choice)":      perp_score               * 25,
+        "Contractions":                  score_contractions(text) * 15,
+        "Sentence Length Mix":           score_avg_sentence_length(text) * 15,
+        "Vocab Diversity":               score_vocab_diversity(text)     * 10,
+        "Punctuation Variety":           score_punctuation_variety(text) * 5,
     }
 
-    raw    = sum(components.values())          # max ~100
+    raw    = sum(components.values())
     deduct = ai_penalty * 100
     score  = max(0, min(100, raw - deduct))
     score  = round(score)
@@ -160,10 +210,12 @@ def human_score(text: str) -> dict:
         label, color = "AI Generated", "#b71c1c"
 
     return {
-        "score":      score,
-        "label":      label,
-        "color":      color,
-        "ai_words":   found_words,
-        "breakdown":  {k: round(v) for k, v in components.items()},
-        "deduction":  round(deduct),
+        "score":       score,
+        "label":       label,
+        "color":       color,
+        "ai_words":    found_words,
+        "breakdown":   {k: round(v) for k, v in components.items()},
+        "deduction":   round(deduct),
+        "burstiness":  burst_info,
+        "perplexity":  perp_info,
     }

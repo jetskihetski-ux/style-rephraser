@@ -337,15 +337,27 @@ with tab_use:
                     with cols[0]:
                         st.caption("Before")
                         for k, v in before["breakdown"].items():
-                            st.progress(v / 25 if v <= 25 else v / 20, text=f"{k}: {v}")
+                            st.progress(min(v / 30, 1.0), text=f"{k}: {v}pts")
                         if before["deduction"]:
                             st.markdown(f'<span style="color:#f87">⚠️ AI word deduction: -{before["deduction"]}pts</span>', unsafe_allow_html=True)
+                        if before["burstiness"]:
+                            b = before["burstiness"]
+                            st.caption(f"Burstiness CV: {b.get('cv',0)} | sentence range: {b.get('min_len',0)}–{b.get('max_len',0)} words")
+                        if before["perplexity"]:
+                            p = before["perplexity"]
+                            st.caption(f"Common word ratio: {p.get('common_word_ratio',0)}% (lower = more human)")
                     with cols[1]:
                         st.caption("After")
                         for k, v in after["breakdown"].items():
-                            st.progress(v / 25 if v <= 25 else v / 20, text=f"{k}: {v}")
+                            st.progress(min(v / 30, 1.0), text=f"{k}: {v}pts")
                         if after["deduction"]:
                             st.markdown(f'<span style="color:#f87">⚠️ AI word deduction: -{after["deduction"]}pts</span>', unsafe_allow_html=True)
+                        if after["burstiness"]:
+                            b = after["burstiness"]
+                            st.caption(f"Burstiness CV: {b.get('cv',0)} | sentence range: {b.get('min_len',0)}–{b.get('max_len',0)} words")
+                        if after["perplexity"]:
+                            p = after["perplexity"]
+                            st.caption(f"Common word ratio: {p.get('common_word_ratio',0)}% (lower = more human)")
 
             st.divider()
 
