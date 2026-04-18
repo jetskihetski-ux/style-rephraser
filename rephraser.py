@@ -1,206 +1,227 @@
 """
-Core rephrasing logic using Claude API.
+Humanizer core — powered by Ollama (local, free, no API key).
+Install Ollama: https://ollama.com
+Then run: ollama pull llama3
 """
 
-import anthropic
+import requests
+import json
 
-CLIENT = anthropic.Anthropic()
-MODEL  = "claude-opus-4-6"
+OLLAMA_URL = "http://localhost:11434/api/generate"
+DEFAULT_MODEL = "llama3"
 
-# ── Rephrase modes ────────────────────────────────────────────────────────
+# ── AI words to flag/remove ───────────────────────────────────────────────
+
+AI_WORDS = [
+    "delve", "delving", "furthermore", "moreover", "utilize", "utilise",
+    "consequently", "nevertheless", "nonetheless", "paradigm", "leverage",
+    "synergy", "holistic", "robust", "seamless", "cutting-edge", "groundbreaking",
+    "it is worth noting", "it is important to note", "in conclusion", "in summary",
+    "to summarize", "as an AI", "I cannot", "I apologize", "certainly",
+    "absolutely", "of course", "invaluable", "multifaceted", "nuanced",
+    "comprehensive", "facilitate", "implement", "regarding", "pertaining to",
+    "in order to", "due to the fact that", "it should be noted",
+]
+
+# ── Modes ─────────────────────────────────────────────────────────────────
 
 MODES = {
+    "humanize": {
+        "label": "Humanize",
+        "icon":  "🧠",
+        "desc":  "Strip AI patterns — make it sound like a real person wrote it.",
+        "instruction": """You are a humanizer. Your job is to rewrite AI-generated text so it sounds like a real human wrote it.
+
+Rules:
+- Vary sentence length — mix short punchy ones with longer ones
+- Use contractions naturally (don't, it's, you'll, I've)
+- Remove AI buzzwords: delve, furthermore, utilize, leverage, seamless, robust, paradigm, holistic, groundbreaking, invaluable, multifaceted, nuanced, comprehensive, facilitate
+- Remove filler openers: "It is worth noting that", "It is important to note", "In conclusion", "Certainly"
+- Add natural flow — how a real person would say it out loud
+- Keep the meaning 100% intact
+- Do NOT add new information
+- Sound genuine, not polished to perfection""",
+    },
     "match_style": {
         "label": "Match My Style",
         "icon":  "🪞",
-        "desc":  "Rewrite using the exact tone, vocabulary, and structure from your uploaded documents.",
-        "instruction": (
-            "Rewrite the input text so it sounds exactly like the author of the reference documents. "
-            "Mirror their sentence length, vocabulary choices, tone, punctuation habits, and overall feel. "
-            "The output should be indistinguishable from something the original author wrote."
-        ),
-    },
-    "formal": {
-        "label": "Formal",
-        "icon":  "🎩",
-        "desc":  "Professional, polished language suitable for reports or emails.",
-        "instruction": (
-            "Rewrite the text in a formal, professional tone. Use complete sentences, precise vocabulary, "
-            "avoid contractions, and structure the content clearly. Suitable for business or academic contexts."
-        ),
+        "desc":  "Rewrite to sound exactly like you based on your uploaded documents.",
+        "instruction": """Rewrite the text to sound exactly like the author of the reference documents.
+Copy their sentence length, vocabulary, tone, punctuation habits, and overall voice.
+The result should be indistinguishable from something they personally wrote.""",
     },
     "casual": {
-        "label": "Casual",
+        "label": "Casual Human",
         "icon":  "😎",
-        "desc":  "Relaxed, conversational — like texting a friend.",
-        "instruction": (
-            "Rewrite the text in a casual, conversational tone. Use natural language, contractions, "
-            "short sentences, and keep it easy and friendly — like you're talking to someone you know."
-        ),
+        "desc":  "Natural, relaxed — like a real person talking.",
+        "instruction": """Rewrite this to sound like a real person casually explaining something.
+Use everyday words, contractions, short sentences mixed with longer ones.
+Imagine you're explaining this to a friend — natural, genuine, zero corporate-speak.""",
+    },
+    "student": {
+        "label": "Student",
+        "icon":  "🎒",
+        "desc":  "Sounds like a university student wrote it — smart but not perfect.",
+        "instruction": """Rewrite this to sound like it was written by a university student.
+It should be intelligent and well-argued but not overly polished.
+Use a mix of formal and casual phrasing, occasional directness, and genuine opinions.
+Avoid all AI buzzwords and corporate language.""",
+    },
+    "professional": {
+        "label": "Professional",
+        "icon":  "💼",
+        "desc":  "Professional but human — not stiff, not robotic.",
+        "instruction": """Rewrite this in a professional human tone.
+Clear, confident, and well-structured — but it should still sound like a person, not a press release.
+Avoid jargon, buzzwords, and filler phrases. Be direct and genuine.""",
+    },
+    "native": {
+        "label": "Native Speaker",
+        "icon":  "🗣️",
+        "desc":  "Fluent, natural native-level English with real idioms.",
+        "instruction": """Rewrite this to sound like a fluent native English speaker wrote it naturally.
+Use real idioms, natural phrasing, and colloquial expressions where appropriate.
+The rhythm should feel effortless — the way a native speaker actually writes, not textbook-perfect.""",
     },
     "shorter": {
         "label": "Shorter",
         "icon":  "✂️",
-        "desc":  "Same meaning, fewer words — cut everything unnecessary.",
-        "instruction": (
-            "Rewrite the text to be significantly shorter. Remove all filler, redundancy, and unnecessary words. "
-            "Keep only the core meaning. Cut at least 40% of the word count without losing key information."
-        ),
-    },
-    "longer": {
-        "label": "Longer",
-        "icon":  "📝",
-        "desc":  "Expand with more detail, examples, and explanation.",
-        "instruction": (
-            "Rewrite the text to be longer and more detailed. Add context, examples, elaboration, and smooth "
-            "transitions. Make it richer and more complete without adding fluff."
-        ),
-    },
-    "simpler": {
-        "label": "Simpler",
-        "icon":  "🧒",
-        "desc":  "Plain English — easy for anyone to understand.",
-        "instruction": (
-            "Rewrite the text using simple, plain English. Use short sentences, common everyday words, "
-            "and avoid jargon or complex phrases. Anyone should be able to understand it easily."
-        ),
-    },
-    "persuasive": {
-        "label": "Persuasive",
-        "icon":  "🎯",
-        "desc":  "Stronger, more convincing — built to persuade.",
-        "instruction": (
-            "Rewrite the text to be more persuasive and impactful. Use strong verbs, confident language, "
-            "rhetorical techniques, and a compelling structure. Make the reader want to agree or act."
-        ),
-    },
-    "academic": {
-        "label": "Academic",
-        "icon":  "🎓",
-        "desc":  "Scholarly tone with structured arguments.",
-        "instruction": (
-            "Rewrite the text in an academic style. Use formal vocabulary, structured paragraphs, "
-            "hedging language where appropriate (e.g. 'it may be argued'), and a logical, evidence-based flow."
-        ),
+        "desc":  "Humanized and cut down — same meaning, fewer words.",
+        "instruction": """Rewrite this to be shorter and more human.
+Cut all filler, AI buzzwords, and unnecessary words. Remove at least 35% of the word count.
+Keep the core meaning. Make what's left sound natural, not robotic.""",
     },
     "creative": {
         "label": "Creative",
         "icon":  "✨",
-        "desc":  "Vivid, expressive, imaginative rewrite.",
-        "instruction": (
-            "Rewrite the text creatively. Use vivid language, metaphors, varied sentence rhythm, and expressive "
-            "word choices. Make it engaging and memorable while preserving the core meaning."
-        ),
+        "desc":  "Vivid and expressive — a human with personality.",
+        "instruction": """Rewrite this with creative, expressive human writing.
+Use vivid language, personality, metaphors where they fit, and a varied rhythm.
+It should feel alive — written by someone with a distinct voice, not a machine.""",
     },
     "bullet_points": {
         "label": "Bullet Points",
         "icon":  "📋",
-        "desc":  "Break it down into clear, scannable bullet points.",
-        "instruction": (
-            "Convert the text into a clean, organised list of bullet points. Group related ideas, "
-            "use parallel structure, and make each point concise and standalone."
-        ),
+        "desc":  "Break it into clear, human-sounding bullet points.",
+        "instruction": """Convert this into bullet points that sound like a real person wrote them.
+No corporate-speak, no AI filler. Keep each point concise, plain, and genuine.
+Use parallel structure but let the language feel natural.""",
+    },
+    "bypass": {
+        "label": "Bypass AI Detection",
+        "icon":  "🕵️",
+        "desc":  "Aggressively rewrite to evade AI detectors.",
+        "instruction": """Rewrite this text to bypass AI detection tools completely.
+
+Techniques to apply:
+- Vary sentence length aggressively (2-word sentences next to 25-word ones)
+- Use unconventional punctuation and structure where natural
+- Insert mild imperfections: sentence fragments, informal asides, rhetorical questions
+- Replace every AI word with a simpler or more idiosyncratic alternative
+- Change passive voice to active throughout
+- Add a personal or opinionated tone — AI is neutral, humans are not
+- Restructure paragraphs — don't follow the original order if you can rephrase it differently
+- Use real contractions throughout
+Keep the full meaning intact.""",
     },
 }
 
 
-# ── Prompts ───────────────────────────────────────────────────────────────
+# ── Ollama helpers ────────────────────────────────────────────────────────
 
-def _style_analysis_prompt(reference_text: str) -> str:
-    return f"""Analyse the writing style of the following text samples and produce a concise style profile.
-
-Cover:
-- Sentence length and structure (short/long, simple/complex)
-- Tone (formal/casual/technical/friendly/etc.)
-- Vocabulary level and word choices
-- Use of punctuation, contractions, emphasis
-- Paragraph structure
-- Any distinctive habits or patterns
-
-Reference samples:
-\"\"\"
-{reference_text}
-\"\"\"
-
-Respond with a structured style profile in under 200 words."""
+def check_ollama() -> tuple[bool, str]:
+    """Check if Ollama is running and return available models."""
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=3)
+        if r.status_code == 200:
+            models = [m["name"] for m in r.json().get("models", [])]
+            return True, models
+        return False, []
+    except Exception:
+        return False, []
 
 
-def _rephrase_prompt(input_text: str, instruction: str, style_profile: str | None) -> str:
+def build_prompt(input_text: str, instruction: str, style_profile: str | None) -> str:
     style_block = (
-        f"\n\nWriting style profile to match:\n\"\"\"\n{style_profile}\n\"\"\""
+        f"\n\nReference writing style to match:\n---\n{style_profile}\n---"
         if style_profile else ""
     )
-    return f"""You are a professional writing assistant.{style_block}
-
-Task: {instruction}
-
-Input text:
-\"\"\"
-{input_text}
-\"\"\"
-
-Output ONLY the rewritten text. No explanation, no preamble, no labels."""
-
-
-# ── Public API ────────────────────────────────────────────────────────────
-
-def analyse_style(reference_text: str) -> str:
-    """Extract a style profile from reference documents."""
-    msg = CLIENT.messages.create(
-        model    = MODEL,
-        max_tokens = 400,
-        messages = [{"role": "user", "content": _style_analysis_prompt(reference_text)}],
+    return (
+        f"{instruction}{style_block}\n\n"
+        f"Text to rewrite:\n---\n{input_text}\n---\n\n"
+        f"Output ONLY the rewritten text. No explanation, no preamble, no labels."
     )
-    return msg.content[0].text.strip()
 
 
-def rephrase(
+def humanize_stream(
     input_text:    str,
     mode:          str,
     style_profile: str | None = None,
-) -> str:
-    """Rephrase input_text according to the chosen mode."""
-    mode_cfg    = MODES.get(mode, MODES["formal"])
-    instruction = mode_cfg["instruction"]
-
-    # For match_style mode, style profile is essential
-    if mode == "match_style" and not style_profile:
-        instruction = (
-            "Rewrite the text clearly and naturally, preserving the original meaning. "
-            "(No reference documents provided — upload documents to enable style matching.)"
-        )
-
-    prompt = _rephrase_prompt(input_text, instruction, style_profile if mode == "match_style" else None)
-
-    msg = CLIENT.messages.create(
-        model      = MODEL,
-        max_tokens = 2048,
-        messages   = [{"role": "user", "content": prompt}],
-    )
-    return msg.content[0].text.strip()
-
-
-def rephrase_stream(
-    input_text:    str,
-    mode:          str,
-    style_profile: str | None = None,
+    model:         str = DEFAULT_MODEL,
 ):
-    """Stream rephrased text token by token."""
-    mode_cfg    = MODES.get(mode, MODES["formal"])
+    """Stream humanized text token by token via Ollama."""
+    mode_cfg    = MODES.get(mode, MODES["humanize"])
     instruction = mode_cfg["instruction"]
 
     if mode == "match_style" and not style_profile:
-        instruction = (
-            "Rewrite the text clearly and naturally, preserving the original meaning. "
-            "(No reference documents provided — upload documents to enable style matching.)"
-        )
+        instruction = MODES["humanize"]["instruction"]  # fallback
 
-    prompt = _rephrase_prompt(input_text, instruction, style_profile if mode == "match_style" else None)
+    prompt = build_prompt(input_text, instruction, style_profile if mode == "match_style" else None)
 
-    with CLIENT.messages.stream(
-        model      = MODEL,
-        max_tokens = 2048,
-        messages   = [{"role": "user", "content": prompt}],
-    ) as stream:
-        for text in stream.text_stream:
-            yield text
+    try:
+        with requests.post(
+            OLLAMA_URL,
+            json={"model": model, "prompt": prompt, "stream": True},
+            stream=True,
+            timeout=120,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    if token := chunk.get("response", ""):
+                        yield token
+                    if chunk.get("done"):
+                        break
+    except requests.exceptions.ConnectionError:
+        yield "[ERROR] Ollama is not running. Start it with: ollama serve"
+    except Exception as e:
+        yield f"[ERROR] {e}"
+
+
+def analyse_style(reference_text: str, model: str = DEFAULT_MODEL) -> str:
+    """Extract a writing style profile from reference documents."""
+    prompt = f"""Analyse the writing style of these text samples and give a concise style profile.
+
+Cover: sentence length, tone, vocabulary level, use of contractions, paragraph structure, distinctive habits.
+
+Samples:
+---
+{reference_text[:5000]}
+---
+
+Write a style profile in under 150 words."""
+
+    result = []
+    try:
+        with requests.post(
+            OLLAMA_URL,
+            json={"model": model, "prompt": prompt, "stream": True},
+            stream=True,
+            timeout=60,
+        ) as resp:
+            for line in resp.iter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    result.append(chunk.get("response", ""))
+                    if chunk.get("done"):
+                        break
+    except Exception as e:
+        return f"Style analysis failed: {e}"
+    return "".join(result).strip()
+
+
+def flag_ai_words(text: str) -> list[str]:
+    """Return list of AI buzzwords found in the text."""
+    lower = text.lower()
+    return [w for w in AI_WORDS if w.lower() in lower]
