@@ -8,6 +8,8 @@ import streamlit as st
 from extractor import extract_text, summarise_for_style
 from rephraser import MODES, check_ollama, humanize_stream, flag_ai_words, DEFAULT_MODEL
 from trainer import analyse_style_detailed, build_modelfile, create_model, delete_model, list_custom_models
+from detector import human_score
+from differ import word_diff_html, change_stats
 
 # ── Page config ───────────────────────────────────────────────────────────
 
@@ -299,11 +301,76 @@ with tab_use:
 
         if st.session_state.output:
             st.divider()
-            orig_w = len(input_text.split()) if input_text else 0
-            out_w  = len(st.session_state.output.split())
-            diff   = out_w - orig_w
-            ai_rem = flag_ai_words(st.session_state.output)
 
+            orig_w  = len(input_text.split()) if input_text else 0
+            out_w   = len(st.session_state.output.split())
+            diff    = out_w - orig_w
+            ai_rem  = flag_ai_words(st.session_state.output)
+
+            # ── AI Detection scores ──
+            if input_text.strip():
+                before = human_score(input_text.strip())
+                after  = human_score(st.session_state.output)
+
+                st.subheader("🔍 AI Detection Score")
+                s1, s2 = st.columns(2)
+
+                with s1:
+                    delta = after["score"] - before["score"]
+                    st.markdown(f"""
+                    <div style="background:#111120;border:1px solid #2a2a3a;border-radius:10px;padding:16px;text-align:center">
+                        <div style="font-size:0.8rem;color:#888;margin-bottom:4px">BEFORE</div>
+                        <div style="font-size:2.8rem;font-weight:700;color:{before['color']}">{before['score']}%</div>
+                        <div style="font-size:0.9rem;color:{before['color']}">{before['label']}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                with s2:
+                    st.markdown(f"""
+                    <div style="background:#111120;border:1px solid {after['color']}44;border-radius:10px;padding:16px;text-align:center">
+                        <div style="font-size:0.8rem;color:#888;margin-bottom:4px">AFTER</div>
+                        <div style="font-size:2.8rem;font-weight:700;color:{after['color']}">{after['score']}%</div>
+                        <div style="font-size:0.9rem;color:{after['color']}">{after['label']}  {'▲ +' if delta>=0 else '▼ '}{abs(delta)}pts</div>
+                    </div>""", unsafe_allow_html=True)
+
+                with st.expander("Score breakdown", expanded=False):
+                    cols = st.columns(2)
+                    with cols[0]:
+                        st.caption("Before")
+                        for k, v in before["breakdown"].items():
+                            st.progress(v / 25 if v <= 25 else v / 20, text=f"{k}: {v}")
+                        if before["deduction"]:
+                            st.markdown(f'<span style="color:#f87">⚠️ AI word deduction: -{before["deduction"]}pts</span>', unsafe_allow_html=True)
+                    with cols[1]:
+                        st.caption("After")
+                        for k, v in after["breakdown"].items():
+                            st.progress(v / 25 if v <= 25 else v / 20, text=f"{k}: {v}")
+                        if after["deduction"]:
+                            st.markdown(f'<span style="color:#f87">⚠️ AI word deduction: -{after["deduction"]}pts</span>', unsafe_allow_html=True)
+
+            st.divider()
+
+            # ── Word diff ──
+            st.subheader("📝 Word-by-Word Changes")
+            if input_text.strip():
+                stats = change_stats(input_text.strip(), st.session_state.output)
+                st.markdown(
+                    f'<span class="stat-pill">✅ {stats["kept"]} kept</span>'
+                    f'<span class="stat-pill" style="color:#f87">✂️ {stats["removed"]} removed</span>'
+                    f'<span class="stat-pill" style="color:#8f8">➕ {stats["added"]} added</span>'
+                    f'<span class="stat-pill">🔄 {stats["pct_changed"]}% changed</span>',
+                    unsafe_allow_html=True,
+                )
+                diff_html = word_diff_html(input_text.strip(), st.session_state.output)
+                st.markdown(
+                    f'<div style="background:#111120;border:1px solid #2a2a3a;border-radius:10px;'
+                    f'padding:20px;line-height:1.9;font-size:0.96rem">{diff_html}</div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.divider()
+
+            # ── Final output + stats ──
+            st.subheader("Output")
             st.markdown(
                 f'<div style="margin-bottom:10px">'
                 f'<span class="stat-pill">📥 {orig_w} words in</span>'
@@ -315,7 +382,6 @@ with tab_use:
                 + '</div>',
                 unsafe_allow_html=True,
             )
-
             st.code(st.session_state.output, language=None)
             st.caption("Click the copy icon above to copy.")
         elif not go:
